@@ -3,17 +3,38 @@ from pydantic import BaseModel
 from typing import List, Optional
 import pandas as pd
 from itinerary_rest_api import build_itinerary_api
+from sqlalchemy import create_engine
+import os
 
 app = FastAPI(
     title="Itinerary API",
     description="Create personalized travel itineraries",
     version="1.0.0"
 )
-
+DATABASE_URL = os.getenv("postgresql://postgres:wMQuVXywnsiYwfrfESnGHZRNttOsKSEX@kodama.proxy.rlwy.net:10698/railway")
 # Load your dataframe globally
-recommendation_df = pd.read_csv("recommendation_df.csv") 
-child_df = pd.read_csv("child_df.csv")
+# For local testing only
+if DATABASE_URL is None:
+    DATABASE_URL = "postgresql://postgres:wMQuVXywnsiYwfrfESnGHZRNttOsKSEX@kodama.proxy.rlwy.net:10698/railway"
 
+DATABASE_URL = DATABASE_URL.replace(
+    "postgres://",
+    "postgresql://"
+)
+
+engine = create_engine(DATABASE_URL)
+
+# Load recommendation table
+recommendation_df = pd.read_sql(
+    "SELECT * FROM recommendation_places",
+    engine
+)
+
+# Load child table
+child_df = pd.read_sql(
+    "SELECT * FROM child_places",
+    engine
+)
 # Request model
 class ItineraryRequest(BaseModel):
     city: str
