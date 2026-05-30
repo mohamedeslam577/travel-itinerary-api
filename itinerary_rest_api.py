@@ -8,21 +8,19 @@ class ChildPlaceResponse:
     """Structured response for a child place"""
     name: str
     categories: str
-    llama_category: str
-    llama_tags: str
     cost: Optional[float]
     day_time: str
     website: str
+    address: Optional[str] = None
 
     def to_dict(self):
         return {
             "name": self.name,
             "categories": self.categories,
-            "llama_category": self.llama_category,
-            "llama_tags": self.llama_tags,
             "cost": self.cost,
             "day_time": self.day_time,
-            "website": self.website
+            "website": self.website,
+            "address": self.address
         }
 
 
@@ -31,13 +29,12 @@ class PlaceResponse:
     """Structured response for a single place"""
     name: str
     categories: str
-    llama_category: str
-    llama_tags: str
     cost: Optional[float]
     day_time: str
     website: str
+    address: Optional[str] = None
     is_parent: bool = False
-    children: List = None  # List[ChildPlaceResponse]
+    children: List = None
 
     def __post_init__(self):
         if self.children is None:
@@ -47,11 +44,10 @@ class PlaceResponse:
         result = {
             "name": self.name,
             "categories": self.categories,
-            "llama_category": self.llama_category,
-            "llama_tags": self.llama_tags,
             "cost": self.cost,
             "day_time": self.day_time,
             "website": self.website,
+            "address": self.address,
             "is_parent": self.is_parent,
         }
         if self.is_parent:
@@ -64,7 +60,7 @@ class DayResponse:
     """Structured response for a single day"""
     day_number: int
     places: List[PlaceResponse]
-    
+
     def to_dict(self):
         return {
             "day": self.day_number,
@@ -81,7 +77,7 @@ class ItineraryResponse:
     used_places: int
     total_places: int
     remaining_budget: float
-    
+
     def to_dict(self):
         return {
             "success": self.success,
@@ -91,7 +87,7 @@ class ItineraryResponse:
             "total_places": self.total_places,
             "remaining_budget": self.remaining_budget
         }
-    
+
     def to_json(self):
         """Convert to JSON string for API response"""
         return json.dumps(self.to_dict())
@@ -100,22 +96,23 @@ class ItineraryResponse:
 def get_candidates(df, city, country=None):
     """Get all candidates from a specific city and optionally country"""
     filtered_df = df[df["city"] == city].copy()
-    
+
     if country is not None:
         filtered_df = filtered_df[filtered_df["country"] == country].copy()
-    
+
     return filtered_df
- 
+
+
 def compute_preference_score(row, user_prefs):
     """Compute normalized preference score based on user tags"""
     score = 0
     for tag in user_prefs:
         if tag in row and row[tag] == 1:
             score += 1
-    
+
     if len(user_prefs) == 0:
         return 0
-    
+
     return score / len(user_prefs)
 
 
@@ -126,7 +123,8 @@ def diversity_penalty(primary_tag, used_tags):
     if primary_tag in used_tags:
         return 0.7
     return 1.0
- 
+
+
 def calculate_distance(place1_coords, place2_coords):
     """
     Calculate distance between two places using Haversine formula
@@ -135,29 +133,30 @@ def calculate_distance(place1_coords, place2_coords):
     """
     if place1_coords is None or place2_coords is None:
         return float('inf')
-    
+
     lat1, lon1 = place1_coords
     lat2, lon2 = place2_coords
-    
+
     R = 6371  # Earth radius in km
-    
+
     dlat = math.radians(lat2 - lat1)
     dlon = math.radians(lon2 - lon1)
-    
-    a = (math.sin(dlat / 2) ** 2 + 
-         math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * 
+
+    a = (math.sin(dlat / 2) ** 2 +
+         math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) *
          math.sin(dlon / 2) ** 2)
-    
+
     c = 2 * math.asin(math.sqrt(a))
     distance = R * c
-    
+
     return distance
- 
+
+
 def distance_weight(distance, max_distance=15.0, min_weight=0.3):
     """Convert distance to weight (closer = higher weight)"""
     if distance >= max_distance:
         return min_weight
-    
+
     return 1.0 - (distance / max_distance) * (1.0 - min_weight)
 
 
@@ -168,13 +167,14 @@ def get_time_weight(day_time, position_in_day):
         1: {"morning": 0.7, "afternoon": 1.0, "night": 0.5},
         2: {"morning": 0.3, "afternoon": 0.7, "night": 1.0}
     }
-    
+
     if position_in_day not in time_weights:
         return 0.5
-    
+
     day_time = day_time.lower() if day_time else "afternoon"
     return time_weights[position_in_day].get(day_time, 0.5)
- 
+
+
 def score_place(row, user_prefs, used_tags, position_in_day, last_place_coords=None):
     """Score a place considering multiple factors"""
     try:
@@ -182,10 +182,10 @@ def score_place(row, user_prefs, used_tags, position_in_day, last_place_coords=N
         popularity = row.get("llama-3.3-70b-versatile_match_score", 50) / 100
         primary_tag = get_primary_tag(row, user_prefs)
         diversity = diversity_penalty(primary_tag, used_tags)
-        
+
         day_time = row.get("day_time", "afternoon")
         time_weight = get_time_weight(day_time, position_in_day)
-        
+
         distance_w = 1.0
         if last_place_coords is not None:
             try:
@@ -194,7 +194,7 @@ def score_place(row, user_prefs, used_tags, position_in_day, last_place_coords=N
                 distance_w = distance_weight(distance)
             except (TypeError, ValueError):
                 distance_w = 1.0
-        
+
         final_score = (
             0.45 * pref_score +
             0.15 * popularity +
@@ -202,41 +202,44 @@ def score_place(row, user_prefs, used_tags, position_in_day, last_place_coords=N
             0.10 * distance_w +
             0.10 * diversity
         )
-        
+
         return final_score
-    
+
     except Exception:
         return 0.0
- 
+
+
 def rank_places(df, user_prefs, position_in_day, used_tags=None, last_place_coords=None):
     """Rank places based on score"""
     if used_tags is None:
         used_tags = set()
-    
+
     try:
         if df.empty:
             return df.copy()
-        
+
         df = df.copy()
         scores = []
-        
+
         for idx, row in df.iterrows():
             score = score_place(row, user_prefs, used_tags, position_in_day, last_place_coords)
             scores.append(score)
-        
+
         df["score"] = scores
         return df.sort_values("score", ascending=False)
-    
+
     except Exception:
         return df.copy()
- 
+
+
 def get_primary_tag(row, user_prefs):
     """Get the first matching preference tag for a place"""
     for tag in user_prefs:
         if tag in row and row[tag] == 1:
             return tag
     return None
- 
+
+
 def get_price_column(price_type="foreign"):
     """Get the appropriate price column name"""
     price_columns = {
@@ -259,22 +262,20 @@ def extract_place_data(row, price_column, child_df=None):
             children.append(ChildPlaceResponse(
                 name=str(child_row.get("name", "Unknown Place")),
                 categories=str(child_row.get("categories", "")),
-                llama_category=str(child_row.get("llama-3.3-70b-versatile_category", "")),
-                llama_tags=str(child_row.get("llama-3.3-70b-versatile_tags", "")),
                 cost=float(child_cost) if child_cost is not None and str(child_cost) != "nan" else None,
                 day_time=str(child_row.get("day_time", "afternoon")),
-                website=str(child_row.get("website", ""))
+                website=str(child_row.get("website", "")),
+                address=str(child_row.get("address", "")) or None
             ))
 
     cost_val = row.get(price_column)
     return PlaceResponse(
         name=str(row.get("name", "Unknown Place")),
         categories=str(row.get("categories", "")),
-        llama_category=str(row.get("llama-3.3-70b-versatile_category", "")),
-        llama_tags=str(row.get("llama-3.3-70b-versatile_tags", "")),
         cost=float(cost_val) if cost_val is not None and str(cost_val) != "nan" else None,
         day_time=str(row.get("day_time", "afternoon")),
         website=str(row.get("website", "")),
+        address=str(row.get("address", "")) or None,
         is_parent=is_parent,
         children=children
     )
@@ -286,61 +287,61 @@ def build_day(candidates, budget, user_prefs, used_places, price_type="foreign",
     used_tags = set()
     remaining_budget = budget
     last_place_coords = None
-    
+
     current_candidates = candidates.copy()
     max_places_per_day = 3
     price_column = get_price_column(price_type)
-    
+
     for position in range(max_places_per_day):
         ranked = rank_places(
-            current_candidates, 
-            user_prefs, 
+            current_candidates,
+            user_prefs,
             position_in_day=position,
             used_tags=used_tags,
             last_place_coords=last_place_coords
         )
-        
+
         found = False
         for _, row in ranked.iterrows():
             if row["name"] in used_places:
                 continue
-            
+
             cost = row.get(price_column)
             if cost is not None and cost > remaining_budget:
                 continue
-            
-            # Extract place data in REST API format (children attached if parent place)
+
             place_response = extract_place_data(row, price_column, child_df=child_df)
             day_places.append(place_response)
-            
+
             primary_tag = get_primary_tag(row, user_prefs)
             used_tags.add(primary_tag)
             used_places.add(row["name"])
-            
+
             if cost:
                 remaining_budget -= cost
-            
+
             try:
                 last_place_coords = (row.get("latitude"), row.get("longitude"))
             except:
                 last_place_coords = None
-            
+
             current_candidates = current_candidates[current_candidates["name"] != row["name"]]
             found = True
             break
-        
+
         if not found:
             break
-    
+
     return day_places, remaining_budget
- 
-def build_itinerary_api(df, city: str, days: int, budget: float, 
-                        user_prefs: List[str], country: Optional[str] = None, 
+
+
+def build_itinerary_api(df, city: str, days: int, budget: float,
+                        user_prefs: List[str], country: Optional[str] = None,
                         price_type: str = "foreign",
                         child_df=None) -> ItineraryResponse:
     """
     Build a multi-day itinerary with REST API response format
-    
+
     Parameters:
     -----------
     df : DataFrame
@@ -359,14 +360,13 @@ def build_itinerary_api(df, city: str, days: int, budget: float,
         Price type: "foreign" (default) or "egyptian"
     child_df : DataFrame, optional
         DataFrame of child places to attach under parent places
-    
+
     Returns:
     --------
     ItineraryResponse : Structured response object
     """
-    
+
     try:
-        # Validate inputs
         if not isinstance(user_prefs, (set, list)):
             return ItineraryResponse(
                 success=False,
@@ -376,9 +376,9 @@ def build_itinerary_api(df, city: str, days: int, budget: float,
                 total_places=0,
                 remaining_budget=budget
             )
-        
+
         user_prefs = set(user_prefs)
-        
+
         if len(user_prefs) == 0:
             return ItineraryResponse(
                 success=False,
@@ -388,10 +388,9 @@ def build_itinerary_api(df, city: str, days: int, budget: float,
                 total_places=0,
                 remaining_budget=budget
             )
-        
-        # Get candidates
+
         candidates = get_candidates(df, city, country)
-        
+
         if candidates.empty:
             country_text = f" in {country}" if country else ""
             return ItineraryResponse(
@@ -402,46 +401,43 @@ def build_itinerary_api(df, city: str, days: int, budget: float,
                 total_places=0,
                 remaining_budget=budget
             )
-        
-        # Check if price column exists
+
         price_column = get_price_column(price_type)
         if price_column not in candidates.columns:
             price_type = "foreign"
             price_column = "foreigner price"
-        
-        # Build itinerary
+
         itinerary_days = []
         used_places = set()
         current_budget = budget
-        
+
         for day_num in range(days):
             daily_pool = candidates[~candidates["name"].isin(used_places)]
-            
+
             if daily_pool.empty:
                 break
-            
+
             day_places, current_budget = build_day(
-                daily_pool, 
-                current_budget, 
-                user_prefs, 
+                daily_pool,
+                current_budget,
+                user_prefs,
                 used_places,
                 price_type=price_type,
                 child_df=child_df
             )
-            
+
             if not day_places:
                 break
-            
+
             itinerary_days.append(DayResponse(day_number=day_num + 1, places=day_places))
-        
-        # Generate message
+
         if len(used_places) == len(candidates):
-            message = f"🎉 Amazing! You've covered all {len(used_places)} incredible places we have in {city}{'in ' + country if country else ''}! Your journey is complete. Come back again for more adventures! ✨"
+            message = f"🎉 Amazing! You've covered all {len(used_places)} incredible places we have in {city}{' in ' + country if country else ''}! Your journey is complete. Come back again for more adventures! ✨"
         elif len(used_places) > 0:
             message = f"✅ Itinerary created! You've explored {len(used_places)} wonderful places out of {len(candidates)} available."
         else:
             message = "❌ Could not create itinerary with the given constraints."
-        
+
         return ItineraryResponse(
             success=len(itinerary_days) > 0,
             message=message,
@@ -450,11 +446,11 @@ def build_itinerary_api(df, city: str, days: int, budget: float,
             total_places=len(candidates),
             remaining_budget=current_budget
         )
-    
+
     except Exception as e:
         return ItineraryResponse(
             success=False,
-            message=f"😔 Oops! We encountered an unexpected issue while planning your adventure. Please try again in a moment.",
+            message="😔 Oops! We encountered an unexpected issue while planning your adventure. Please try again in a moment.",
             itinerary=[],
             used_places=0,
             total_places=0,
@@ -462,22 +458,7 @@ def build_itinerary_api(df, city: str, days: int, budget: float,
         )
 
 
-# Example usage for Flask/FastAPI endpoint
 def itinerary_endpoint(request_data: dict) -> dict:
-    """
-    Example endpoint handler for Flask/FastAPI
-    
-    request_data should contain:
-    {
-        "df": DataFrame,
-        "city": str,
-        "country": str (optional),
-        "days": int,
-        "budget": float,
-        "preferences": List[str],
-        "price_type": str (optional, "foreign" or "egyptian")
-    }
-    """
     try:
         response = build_itinerary_api(
             df=request_data.get("df"),
@@ -488,9 +469,9 @@ def itinerary_endpoint(request_data: dict) -> dict:
             country=request_data.get("country"),
             price_type=request_data.get("price_type", "foreign")
         )
-        
+
         return response.to_dict()
-    
+
     except Exception as e:
         return {
             "success": False,

@@ -11,30 +11,20 @@ app = FastAPI(
     description="Create personalized travel itineraries",
     version="1.0.0"
 )
-DATABASE_URL = os.getenv("postgresql://postgres:wMQuVXywnsiYwfrfESnGHZRNttOsKSEX@kodama.proxy.rlwy.net:10698/railway")
-# Load your dataframe globally
-# For local testing only
-if DATABASE_URL is None:
-    DATABASE_URL = "postgresql://postgres:wMQuVXywnsiYwfrfESnGHZRNttOsKSEX@kodama.proxy.rlwy.net:10698/railway"
 
-DATABASE_URL = DATABASE_URL.replace(
-    "postgres://",
-    "postgresql://"
-)
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+if DATABASE_URL is None:
+    DATABASE_URL = "postgresql://postgres:YqavFXcTXlyBuMNKTWObIkZeiGodEuiA@kodama.proxy.rlwy.net:26773/railway"
+
+DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://")
 
 engine = create_engine(DATABASE_URL)
 
-# Load recommendation table
-recommendation_df = pd.read_sql(
-    "SELECT * FROM recommendation_places",
-    engine
-)
+recommendation_df = pd.read_sql("SELECT * FROM recommendation_places", engine)
+child_df = pd.read_sql("SELECT * FROM child_places", engine)
 
-# Load child table
-child_df = pd.read_sql(
-    "SELECT * FROM child_places",
-    engine
-)
+
 # Request model
 class ItineraryRequest(BaseModel):
     city: str
@@ -43,7 +33,7 @@ class ItineraryRequest(BaseModel):
     budget: float
     preferences: List[str]
     price_type: Optional[str] = "foreign"
-    
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -61,22 +51,22 @@ class ItineraryRequest(BaseModel):
 class ChildPlaceModel(BaseModel):
     name: str
     categories: str
-    llama_category: str
-    llama_tags: str
     cost: Optional[float]
     day_time: str
     website: str
+    address: Optional[str] = None
+
 
 class PlaceModel(BaseModel):
     name: str
     categories: str
-    llama_category: str
-    llama_tags: str
     cost: Optional[float]
     day_time: str
     website: str
+    address: Optional[str] = None
     is_parent: bool = False
     children: Optional[List[ChildPlaceModel]] = []
+
 
 class DayModel(BaseModel):
     day: int
@@ -96,21 +86,21 @@ class ItineraryResponseModel(BaseModel):
 async def create_itinerary(request: ItineraryRequest):
     """
     Create a personalized itinerary
-    
+
     **Parameters:**
     - **city** (str): The city to plan for
     - **country** (str, optional): The country (for multi-country cities)
     - **days** (int): Number of days for the itinerary
     - **budget** (float): Total budget for the trip
-    - **preferences** (List[str]): List of preference categories (e.g., ["Nightlife & Festive", "Shopping"])
+    - **preferences** (List[str]): List of preference categories
     - **price_type** (str, optional): "foreign" (default) or "egyptian"
-    
+
     **Returns:**
     - Itinerary with daily breakdown and location details
     """
     try:
         response = build_itinerary_api(
-            df=recommendation_df,  # Your dataframe
+            df=recommendation_df,
             city=request.city,
             country=request.country,
             days=request.days,
@@ -119,9 +109,9 @@ async def create_itinerary(request: ItineraryRequest):
             price_type=request.price_type,
             child_df=child_df
         )
-        
+
         return response.to_dict()
-    
+
     except Exception as e:
         raise HTTPException(
             status_code=500,
@@ -151,5 +141,3 @@ async def root():
             "docs": "/docs"
         }
     }
-
-
