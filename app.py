@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
 import pandas as pd
@@ -12,6 +13,17 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# =========================
+# CORS FIX FOR FLUTTER WEB
+# =========================
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins (good for testing)
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 if DATABASE_URL is None:
@@ -21,11 +33,20 @@ DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://")
 
 engine = create_engine(DATABASE_URL)
 
-recommendation_df = pd.read_sql("SELECT * FROM recommendation_places", engine)
-child_df = pd.read_sql("SELECT * FROM child_places", engine)
+recommendation_df = pd.read_sql(
+    "SELECT * FROM recommendation_places",
+    engine
+)
+
+child_df = pd.read_sql(
+    "SELECT * FROM child_places",
+    engine
+)
 
 
-# Request model
+# =========================
+# REQUEST MODEL
+# =========================
 class ItineraryRequest(BaseModel):
     city: str
     country: Optional[str] = None
@@ -41,13 +62,19 @@ class ItineraryRequest(BaseModel):
                 "country": "Egypt",
                 "days": 3,
                 "budget": 100000000,
-                "preferences": ["Nightlife & Festive", "Shopping", "Nature & Adventure"],
+                "preferences": [
+                    "Nightlife & Festive",
+                    "Shopping",
+                    "Nature & Adventure"
+                ],
                 "price_type": "foreign"
             }
         }
 
 
-# Response models
+# =========================
+# RESPONSE MODELS
+# =========================
 class ChildPlaceModel(BaseModel):
     name: str
     categories: str
@@ -82,22 +109,11 @@ class ItineraryResponseModel(BaseModel):
     remaining_budget: float
 
 
+# =========================
+# CREATE ITINERARY
+# =========================
 @app.post("/api/itinerary", response_model=ItineraryResponseModel)
 async def create_itinerary(request: ItineraryRequest):
-    """
-    Create a personalized itinerary
-
-    **Parameters:**
-    - **city** (str): The city to plan for
-    - **country** (str, optional): The country (for multi-country cities)
-    - **days** (int): Number of days for the itinerary
-    - **budget** (float): Total budget for the trip
-    - **preferences** (List[str]): List of preference categories
-    - **price_type** (str, optional): "foreign" (default) or "egyptian"
-
-    **Returns:**
-    - Itinerary with daily breakdown and location details
-    """
     try:
         response = build_itinerary_api(
             df=recommendation_df,
@@ -112,25 +128,29 @@ async def create_itinerary(request: ItineraryRequest):
 
         return response.to_dict()
 
-    except Exception as e:
+    except Exception:
         raise HTTPException(
             status_code=500,
             detail="😔 Oops! We encountered an unexpected issue while planning your adventure. Please try again in a moment."
         )
 
 
+# =========================
+# HEALTH CHECK
+# =========================
 @app.get("/api/health")
 async def health_check():
-    """Health check endpoint"""
     return {
         "status": "ok",
         "message": "Itinerary API is running"
     }
 
 
+# =========================
+# ROOT
+# =========================
 @app.get("/")
 async def root():
-    """Root endpoint with API information"""
     return {
         "name": "Itinerary API",
         "version": "1.0.0",
