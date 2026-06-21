@@ -12,7 +12,7 @@ _rapid_api_key = None
 def get_rapid_api_key() -> str:
     global _rapid_api_key
     if _rapid_api_key is None:
-        _rapid_api_key = os.environ.get("RAPID_API_KEY", "8b1a67d571msh14ac48bf21ec575p102014jsnab3ec6a4276d")
+        _rapid_api_key = os.environ.get("RAPID_API_KEY", "YOUR_RAPID_API_KEY_HERE")
     return _rapid_api_key
 
 
